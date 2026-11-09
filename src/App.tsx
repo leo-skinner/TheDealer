@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { ColorSprite, ItemColorBlock } from './components/ColorSprite';
 import { ReferenceModal } from './components/ReferenceModal';
-import { TypewriterMessage } from './components/TypewriterMessage';
+import { TypewriterLogEntry, TypewriterMessage } from './components/TypewriterMessage';
 import { LOCATION_SPECS } from './config/sprites';
 import {
   evaluateBargainOffer,
@@ -82,8 +82,14 @@ export default function App() {
   };
 
   useEffect(() => {
-    scrollTranscriptToBottom();
-  }, [gameState.activeEncounter?.transcript, gameState.logs]);
+    if (!transcriptContainerRef.current) return;
+    if (gameState.activeEncounter) {
+      scrollTranscriptToBottom();
+    } else {
+      // Keep the newest event log at the top visible while it types out
+      transcriptContainerRef.current.scrollTop = 0;
+    }
+  }, [gameState.activeEncounter, gameState.activeEncounter?.transcript, gameState.logs]);
 
   const { formatted: formattedHour, isNight, periodLabel } = formatGameHour(gameState.player.hour);
   const currentLocSpec = LOCATION_SPECS[gameState.player.currentLocation];
@@ -1201,119 +1207,135 @@ export default function App() {
         </div>
       </header>
 
-      {/* TOP HUD: BANKROLL, DAY/NIGHT CLOCK, POLICE HEAT & DELIVERY STATUS */}
+      {/* COMPACT TOP HUD: STACKED BANKROLL + CLOCK ON LEFT, POLICE HEAT + MR. SMASH DELIVERY ALIGNED BESIDE/BELOW */}
       <section
         aria-label="Player Status HUD"
-        className={`border-b transition-colors duration-300 px-3 sm:px-6 py-2.5 sm:py-3 ${
+        className={`border-b transition-colors duration-300 px-3 sm:px-6 py-2 ${
           isNight
             ? 'bg-slate-950 border-slate-800 text-slate-100'
             : 'bg-amber-950/30 border-amber-800/40 text-amber-50'
         }`}
       >
-        <div className="max-w-[1380px] mx-auto grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-          {/* 1. Bankroll */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 sm:p-3 rounded-lg bg-slate-900/90 border border-slate-800 gap-1">
-            <div>
-              <div className="text-[11px] sm:text-xs text-slate-400">
-                Bankroll · Goal £{gameState.player.targetGoal}
+        <div className="max-w-[1380px] mx-auto flex flex-wrap items-stretch justify-between gap-2">
+          {/* Compact 2-Column Stacked Status Cluster (Tight margins close to the words) */}
+          <div className="flex flex-wrap items-stretch gap-2">
+            {/* LEFT STACK: Bankroll on top, Day & Hour directly below */}
+            <div className="flex flex-col gap-1.5">
+              {/* Top: Bankroll (tightly fitted around the text) */}
+              <div className="inline-flex items-center gap-2.5 px-2.5 py-1 rounded-md bg-slate-900/95 border border-slate-800 w-fit">
+                <div>
+                  <div className="text-[10px] text-slate-400 leading-tight whitespace-nowrap">
+                    Bankroll · Goal £{gameState.player.targetGoal}
+                  </div>
+                  <div className="text-sm sm:text-base font-bold font-mono text-emerald-400 tabular-nums leading-tight whitespace-nowrap">
+                    £{gameState.player.bankroll.toFixed(2)}
+                  </div>
+                </div>
+                <div className="border-l border-slate-800 pl-2 text-[10px] text-slate-400 font-mono leading-tight whitespace-nowrap">
+                  <div>Rep: {gameState.player.reputation}%</div>
+                  <div>
+                    Boot: {gameState.player.inventory.length}/{gameState.player.maxCarryCapacity}
+                  </div>
+                </div>
               </div>
-              <div className="text-base sm:text-xl font-bold font-mono text-emerald-400 tabular-nums">
-                £{gameState.player.bankroll.toFixed(2)}
+
+              {/* Bottom: Day & Hour (directly below Bankroll, tightly fitted) */}
+              <div className="inline-flex items-center gap-2.5 px-2.5 py-1 rounded-md bg-slate-900/95 border border-slate-800 w-fit">
+                <div>
+                  <div className="text-[10px] text-slate-400 leading-tight whitespace-nowrap">
+                    Day {gameState.player.day}/{gameState.player.maxDays} · Curfew 03:00
+                  </div>
+                  <div className="text-sm sm:text-base font-bold font-mono text-amber-300 tabular-nums leading-tight flex items-center gap-1 whitespace-nowrap">
+                    <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>{formattedHour}</span>
+                  </div>
+                </div>
+                <div className="border-l border-slate-800 pl-2 text-[10px] text-slate-300 leading-tight whitespace-nowrap">
+                  <div className="font-semibold">{isNight ? 'Night Mode' : 'Day Mode'}</div>
+                  <div className="text-slate-400">
+                    {isNight ? 'High Patrols' : 'Shops Open'}
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="flex sm:flex-col justify-between text-[11px] sm:text-xs text-slate-400 font-mono">
-              <span>Rep: {gameState.player.reputation}%</span>
-              <span>
-                Car Boot: {gameState.player.inventory.length}/{gameState.player.maxCarryCapacity}
-              </span>
+
+            {/* RIGHT STACK (Aligned beside Left Stack): Police Heat on top, Mr. Smash Delivery below */}
+            <div className="flex flex-col gap-1.5">
+              {/* Top: Police Heat (Car Search Risk) */}
+              <div className="inline-flex items-center gap-2.5 px-2.5 py-1 rounded-md bg-slate-900/95 border border-slate-800 w-fit">
+                <div>
+                  <div className="text-[10px] text-slate-400 leading-tight whitespace-nowrap">
+                    Police Car Search (HEAT)
+                  </div>
+                  <div
+                    className={`text-sm sm:text-base font-bold font-mono tabular-nums leading-tight whitespace-nowrap ${
+                      gameState.world.policeHeat >= 75
+                        ? 'text-rose-400'
+                        : gameState.world.policeHeat >= 40
+                        ? 'text-amber-400'
+                        : 'text-sky-400'
+                    }`}
+                  >
+                    {gameState.world.policeHeat}% ·{' '}
+                    {gameState.world.policeHeat >= 75
+                      ? 'CRITICAL'
+                      : gameState.world.policeHeat >= 40
+                      ? 'HIGH'
+                      : 'LOW'}
+                  </div>
+                </div>
+                <AlertTriangle
+                  className={`w-3.5 h-3.5 shrink-0 ${
+                    gameState.world.policeHeat >= 75 ? 'text-rose-500' : 'text-slate-500'
+                  }`}
+                />
+              </div>
+
+              {/* Bottom: Mr. Smash Delivery (5% Fee) aligned beside Day/Hour and below Police Heat */}
+              <div className="inline-flex items-center gap-2.5 px-2.5 py-1 rounded-md bg-slate-900/95 border border-slate-800 w-fit">
+                <div>
+                  <div className="text-[10px] text-slate-300 leading-tight whitespace-nowrap">
+                    <strong className="text-slate-100">Mr. Smash (Delivery)</strong> · 5% Fee
+                  </div>
+                  <div className="text-xs font-semibold font-mono text-sky-400 leading-tight whitespace-nowrap">
+                    {gameState.player.pendingDeals.length > 0
+                      ? `${gameState.player.pendingDeals.length} PENDING DELIVERY(S)`
+                      : 'AT MR. SMASH’S FLAT'}
+                  </div>
+                </div>
+                <div className="border-l border-slate-800 pl-2 text-[10px] text-slate-400 font-mono leading-tight whitespace-nowrap">
+                  <div>5% Fees Paid:</div>
+                  <div className="text-slate-200">
+                    £{gameState.world.terryStatus.totalCommissionPaid.toFixed(2)}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* 2. Clock & Daily Turn (06:00 to 03:00) */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 sm:p-3 rounded-lg bg-slate-900/90 border border-slate-800 gap-1">
-            <div>
-              <div className="text-[11px] sm:text-xs text-slate-400">
-                Day {gameState.player.day}/{gameState.player.maxDays} · Curfew 03:00
-              </div>
-              <div className="text-base sm:text-xl font-bold font-mono text-amber-300 tabular-nums flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
-                <span>{formattedHour}</span>
-              </div>
-            </div>
-            <div className="sm:text-right text-[11px] sm:text-xs text-slate-300">
-              <div className="font-medium">{isNight ? 'Night Mode' : 'Day Mode'}</div>
-              <div className="text-slate-400 hidden sm:block">{periodLabel}</div>
-            </div>
-          </div>
-
-          {/* 3. Police Heat (Car Search Probability) */}
-          <div className="flex items-center justify-between p-2.5 sm:p-3 rounded-lg bg-slate-900/90 border border-slate-800">
-            <div>
-              <div className="text-[11px] sm:text-xs text-slate-400">
-                Police Car Search Risk (HEAT)
-              </div>
-              <div
-                className={`text-base sm:text-xl font-bold font-mono tabular-nums ${
-                  gameState.world.policeHeat >= 75
-                    ? 'text-rose-400'
-                    : gameState.world.policeHeat >= 40
-                    ? 'text-amber-400'
-                    : 'text-sky-400'
-                }`}
-              >
-                {gameState.world.policeHeat}% ·{' '}
-                {gameState.world.policeHeat >= 75
-                  ? 'CRITICAL'
-                  : gameState.world.policeHeat >= 40
-                  ? 'HIGH'
-                  : 'LOW'}
-              </div>
-            </div>
-            <AlertTriangle
-              className={`w-4 h-4 sm:w-5 sm:h-5 shrink-0 ${
-                gameState.world.policeHeat >= 75 ? 'text-rose-500' : 'text-slate-500'
-              }`}
-            />
-          </div>
-
-          {/* 4. Mr. Smash Delivery (5% Commission) + Dictionary & Sound */}
-          <div className="flex items-center justify-between p-2.5 sm:p-3 rounded-lg bg-slate-900/90 border border-slate-800 gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] sm:text-xs text-slate-300 leading-snug break-words">
-                <strong className="text-slate-100">Mr. Smash (Delivery)</strong> · 5% Fee
-              </div>
-              <div className="text-xs sm:text-sm font-semibold font-mono text-sky-400 leading-snug">
-                {gameState.player.pendingDeals.length > 0
-                  ? `${gameState.player.pendingDeals.length} PENDING DELIVERY(S)`
-                  : 'AT MR. SMASH’S FLAT'}
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono">
-                5% Fees Paid: £{gameState.world.terryStatus.totalCommissionPaid.toFixed(2)}
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                onClick={() => setRefModal({ open: true, tab: 'dictionary' })}
-                className="hidden sm:flex min-h-[38px] px-2.5 py-1.5 rounded-lg bg-amber-400/15 hover:bg-amber-400 hover:text-slate-950 border border-amber-400/40 text-amber-300 text-xs font-semibold transition-colors items-center gap-1 whitespace-nowrap"
-                title="Open Game Slang & Terms Dictionary"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Dictionary</span>
-              </button>
-              <button
-                onClick={() =>
-                  setGameState((prev) => ({ ...prev, soundEnabled: !prev.soundEnabled }))
-                }
-                className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-lg bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-100 transition-colors"
-                title={gameState.soundEnabled ? '8-bit Sound ON' : 'Sound Muted'}
-              >
-                {gameState.soundEnabled ? (
-                  <Volume2 className="w-4 h-4 text-emerald-400" />
-                ) : (
-                  <VolumeX className="w-4 h-4" />
-                )}
-              </button>
-            </div>
+          {/* Utility Actions (Dictionary & Sound) */}
+          <div className="flex items-center gap-1.5 self-center shrink-0">
+            <button
+              onClick={() => setRefModal({ open: true, tab: 'dictionary' })}
+              className="hidden sm:flex min-h-[36px] px-2.5 py-1 rounded-md bg-amber-400/15 hover:bg-amber-400 hover:text-slate-950 border border-amber-400/40 text-amber-300 text-xs font-semibold transition-colors items-center gap-1 whitespace-nowrap"
+              title="Open Game Slang & Terms Dictionary"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Dictionary</span>
+            </button>
+            <button
+              onClick={() =>
+                setGameState((prev) => ({ ...prev, soundEnabled: !prev.soundEnabled }))
+              }
+              className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-100 transition-colors"
+              title={gameState.soundEnabled ? '8-bit Sound ON' : 'Sound Muted'}
+            >
+              {gameState.soundEnabled ? (
+                <Volume2 className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <VolumeX className="w-4 h-4" />
+              )}
+            </button>
           </div>
         </div>
       </section>
@@ -1358,11 +1380,11 @@ export default function App() {
       )}
 
       {/* MAIN GAME WORKSPACE */}
-      <main className="flex-1 max-w-[1380px] w-full mx-auto px-3 sm:px-6 py-4 sm:py-5 grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-start">
-        {/* LEFT / CENTER COLUMN (8 COLS ON DESKTOP) */}
+      <main className="flex-1 max-w-[1380px] w-full mx-auto px-3 sm:px-6 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-stretch">
+        {/* LEFT / CENTER COLUMN (8 COLS ON DESKTOP): STAGE + CHAT + CAR BOOT & MR. SMASH BELOW CHAT */}
         <div
-          className={`lg:col-span-8 space-y-5 ${
-            activeWorkspaceView === 'mobile_map' ? 'hidden lg:block' : 'block'
+          className={`lg:col-span-8 flex flex-col gap-4 ${
+            activeWorkspaceView === 'mobile_map' ? 'hidden lg:flex' : 'flex'
           }`}
         >
           {activeWorkspaceView === 'logistics' ? (
@@ -1884,38 +1906,39 @@ export default function App() {
               )}
             </div>
 
-            {/* Dialogue Transcript with IMPROVEMENT #6: TypewriterMessage for NPC pitch & responses */}
+            {/* Dialogue & Hourly Event Log Transcript with Typewriter Effect on ALL messages */}
             <div
               ref={transcriptContainerRef}
               className="p-4 sm:p-5 h-60 sm:h-64 overflow-y-auto space-y-3 bg-[#070b09] font-mono text-xs"
             >
               {gameState.activeEncounter ? (
                 gameState.activeEncounter.transcript.map((entry, idx, arr) => {
-                  const isLatestNpc =
-                    entry.speaker === 'NPC' &&
-                    idx === arr.map((m) => m.speaker).lastIndexOf('NPC');
+                  const isLatestNonPlayer =
+                    (entry.speaker === 'NPC' || entry.speaker === 'SYSTEM') &&
+                    idx === arr.length - 1;
                   return (
                     <TypewriterMessage
                       key={entry.id}
                       entry={entry}
-                      isLatestNpcMessage={isLatestNpc}
+                      isLatestMessage={isLatestNonPlayer}
                       soundEnabled={gameState.soundEnabled}
                       onTypingProgress={scrollTranscriptToBottom}
                     />
                   );
                 })
               ) : (
-                <div className="space-y-2">
-                  <div className="text-slate-400 mb-2">
+                <div className="space-y-2.5">
+                  <div className="text-slate-400 text-[11px] pb-1 border-b border-slate-900">
                     Approach any character above so they introduce their products, or type natural commands below.
                   </div>
                   {gameState.logs.map((logLine, i) => (
-                    <div
-                      key={i}
-                      className="py-1.5 px-3 rounded bg-slate-900/70 border border-slate-800/80 text-slate-300 leading-relaxed break-words"
-                    >
-                      {logLine}
-                    </div>
+                    <TypewriterLogEntry
+                      key={`${i}-${logLine}`}
+                      text={logLine}
+                      shouldAnimate={i === 0}
+                      isHighlighted={i === 0}
+                      soundEnabled={gameState.soundEnabled}
+                    />
                   ))}
                 </div>
               )}
@@ -2025,14 +2048,14 @@ export default function App() {
               </button>
             </div>
 
-            {/* Live 1985 Keyword Scanner Preview when typing */}
+            {/* Live Keyword Scanner Preview when typing */}
             {commandInput.trim().length > 0 &&
               (() => {
                 const liveParsed = parseFreeTextCommand(commandInput);
                 return (
                   <div className="px-4 sm:px-5 py-1.5 bg-slate-950 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
                     <span className="text-slate-400">
-                      1985 Keyword Scanner:{' '}
+                      Keyword Scanner:{' '}
                       {liveParsed.extractedKeywords.length > 0 ? (
                         <span className="text-emerald-400 font-semibold">
                           [{liveParsed.extractedKeywords.join(' · ')}]
@@ -2077,29 +2100,217 @@ export default function App() {
               </button>
             </form>
           </div>
+
+          {/* BOTTOM SECTION DIRECTLY BELOW CHAT: CAR BOOT & LOCK-UP + MR. SMASH DELIVERY */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 1. Car Boot & Lock-up Overview */}
+            <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between space-y-3">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm sm:text-base font-bold text-slate-100 flex items-center gap-2">
+                    <Package className="w-4 h-4 text-amber-400" />
+                    <span>Car Boot & Lock-up</span>
+                  </h2>
+                  <button
+                    onClick={() =>
+                      setActiveWorkspaceView(
+                        activeWorkspaceView === 'logistics' ? 'stage' : 'logistics'
+                      )
+                    }
+                    className="text-xs font-mono text-amber-400 hover:underline"
+                  >
+                    {activeWorkspaceView === 'logistics' ? 'Back to Stage' : 'Contracts →'}
+                  </button>
+                </div>
+
+                {/* In Car Boot */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>In Car Boot · Leo Smith (You)</span>
+                    <span className="font-mono">
+                      {gameState.player.inventory.length}/{gameState.player.maxCarryCapacity}
+                    </span>
+                  </div>
+                  {gameState.player.inventory.length === 0 ? (
+                    <div className="p-2 rounded bg-slate-950 border border-slate-800/80 text-xs text-slate-500 font-mono">
+                      Car Boot is empty.
+                    </div>
+                  ) : (
+                    gameState.player.inventory.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <ItemColorBlock type={item.type} isIllicit={item.isIllicit} size="sm" />
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-100 break-words leading-snug">
+                              {item.name}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-400">
+                              Paid: £{item.buyPrice} ·{' '}
+                              <span
+                                className={item.isIllicit ? 'text-rose-400' : 'text-emerald-400'}
+                              >
+                                {item.isIllicit ? 'CONTRABAND' : 'LEGIT'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        {isAtWarehouse && (
+                          <button
+                            onClick={() => handleTransferToWarehouse(item.id)}
+                            className="min-h-[34px] px-2.5 py-1 text-[11px] font-mono bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold rounded transition-colors whitespace-nowrap shrink-0"
+                          >
+                            Unload
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* In The Lock-up */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>In The Lock-up (Warehouse)</span>
+                    <span className="font-mono">
+                      {gameState.player.warehouseInventory.length} lots
+                    </span>
+                  </div>
+                  {gameState.player.warehouseInventory.length === 0 ? (
+                    <div className="p-2 rounded bg-slate-950 border border-slate-800/80 text-xs text-slate-500 font-mono">
+                      No parcels in The Lock-up.
+                    </div>
+                  ) : (
+                    gameState.player.warehouseInventory.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <ItemColorBlock type={item.type} isIllicit={item.isIllicit} size="sm" />
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-100 break-words leading-snug">
+                              {item.name}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-400">
+                              Paid: £{item.buyPrice} · Stored at Lock-up
+                            </div>
+                          </div>
+                        </div>
+                        {isAtWarehouse ? (
+                          <button
+                            onClick={() => handleRetrieveFromWarehouse(item.id)}
+                            className="min-h-[34px] px-2.5 py-1 text-[11px] font-mono bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold rounded transition-colors whitespace-nowrap shrink-0"
+                          >
+                            Load Car
+                          </button>
+                        ) : (
+                          <span className="text-[11px] font-mono text-slate-500 shrink-0">
+                            At Lock-up
+                          </span>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Mr. Smash Delivery Apartment Info (Below Chat right beside Car Boot & Lock-up) */}
+            <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between space-y-3">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm sm:text-base font-bold text-sky-400 flex items-center gap-2">
+                    <Shield className="w-4 h-4" />
+                    <span>Mr. Smash · Delivery (5% Fee)</span>
+                  </h2>
+                  <button
+                    onClick={() => setRefModal({ open: true, tab: 'dictionary' })}
+                    className="text-xs text-amber-400 hover:underline flex items-center gap-1 font-medium"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>Dictionary</span>
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Mr. Smash lives in his own apartment (<strong>Mr. Smash&apos;s Flat</strong>) and
+                  handles your deliveries for a <strong>5% commission</strong> on the negotiated
+                  value.
+                </p>
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/90 text-xs font-mono space-y-1">
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Active Contracts:</span>
+                    <span className="text-sky-400 font-bold">
+                      {gameState.player.pendingDeals.length}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span>Minder Escort Status:</span>
+                    <span
+                      className={
+                        gameState.world.terryStatus.isFollowing
+                          ? 'text-emerald-400 font-semibold'
+                          : 'text-slate-400'
+                      }
+                    >
+                      {gameState.world.terryStatus.isFollowing
+                        ? 'Riding Shotgun (-40% Police Risk)'
+                        : 'At His Flat'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => handleMoveToLocation('smash_flat')}
+                  className="min-h-[42px] p-2.5 text-xs font-medium bg-slate-950 hover:bg-slate-800 text-sky-300 border border-slate-800 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  Drive to Smash&apos;s Flat
+                </button>
+                <button
+                  onClick={() =>
+                    handleCommandSubmit(
+                      undefined,
+                      gameState.world.terryStatus.isFollowing ? 'stop minder' : 'be my minder'
+                    )
+                  }
+                  className="min-h-[42px] p-2.5 text-xs font-medium bg-slate-950 hover:bg-slate-800 text-amber-300 border border-slate-800 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  {gameState.world.terryStatus.isFollowing
+                    ? 'Dismiss Escort'
+                    : 'Hire Minder Escort'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* RIGHT COLUMN (4 COLS ON DESKTOP, OR MOBILE MAP & STOCK TAB) */}
+        {/* RIGHT COLUMN (4 COLS ON DESKTOP): STRETCHED LONDON STREET CIRCUIT */}
         <aside
-          className={`lg:col-span-4 space-y-5 ${
-            activeWorkspaceView === 'mobile_map' ? 'block' : 'hidden lg:block'
+          className={`lg:col-span-4 flex flex-col ${
+            activeWorkspaceView === 'mobile_map' ? 'flex' : 'hidden lg:flex'
           }`}
         >
-          {/* 1. London Street Circuit (+1 Hour per trip & Police Car Search Risk) */}
-          <div className="p-4 sm:p-5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-slate-100">
-                London Street Circuit
-              </h2>
-              <span className="text-xs font-mono text-amber-400">+1 Hour / drive</span>
+          {/* London Street Circuit stretched vertically to align with the entire Left Column */}
+          <div className="flex-1 flex flex-col justify-between p-4 sm:p-5 rounded-xl bg-slate-900/90 border border-slate-800 gap-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base sm:text-lg font-bold text-slate-100">
+                  London Street Circuit
+                </h2>
+                <span className="text-xs font-mono text-amber-400">+1 Hour / drive</span>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Driving between locations carries a{' '}
+                <strong className="text-rose-400">{gameState.world.policeHeat}%</strong> chance of a
+                Police Car Boot Search based on your current HEAT!
+              </p>
             </div>
-            <p className="text-xs text-slate-400">
-              Driving between locations carries a{' '}
-              <strong className="text-rose-400">{gameState.world.policeHeat}%</strong> chance of a
-              Police Car Boot Search based on your current HEAT!
-            </p>
 
-            <div className="space-y-2 pt-1">
+            <div className="flex-1 flex flex-col justify-between gap-2.5 py-1">
               {(Object.keys(LOCATION_SPECS) as LocationId[]).map((locKey) => {
                 const spec = LOCATION_SPECS[locKey];
                 const isHere = gameState.player.currentLocation === locKey;
@@ -2115,13 +2326,13 @@ export default function App() {
                     key={locKey}
                     disabled={isHere}
                     onClick={() => handleMoveToLocation(locKey)}
-                    className={`w-full min-h-[54px] p-3 rounded-lg border text-left transition-all flex items-center justify-between gap-3 ${
+                    className={`w-full flex-1 min-h-[68px] p-3.5 rounded-xl border text-left transition-all flex items-center justify-between gap-3 ${
                       isHere
-                        ? 'bg-amber-500/15 border-amber-400 text-slate-100 cursor-default'
+                        ? 'bg-amber-500/15 border-amber-400 text-slate-100 cursor-default shadow-sm'
                         : 'bg-slate-950/90 hover:bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center gap-2">
                         <span
                           className="w-2.5 h-2.5 rounded-xs shrink-0"
@@ -2131,8 +2342,10 @@ export default function App() {
                           {spec.name}
                         </span>
                       </div>
-                      <div className="text-[11px] font-mono text-slate-400 mt-1 flex flex-wrap items-center gap-2">
-                        <span>{isOpenNow ? 'OPEN' : 'CLOSED'}</span>
+                      <div className="text-[11px] font-mono text-slate-400 flex flex-wrap items-center gap-1.5">
+                        <span className={isOpenNow ? 'text-emerald-400' : 'text-rose-400'}>
+                          {isOpenNow ? 'OPEN' : 'CLOSED'}
+                        </span>
                         <span aria-hidden="true">·</span>
                         <span>{spec.originalName}</span>
                         {hasPendingPickupHere && (
@@ -2142,173 +2355,26 @@ export default function App() {
                           </>
                         )}
                       </div>
+                      <p className="text-[11px] text-slate-400/90 line-clamp-1">
+                        {spec.description}
+                      </p>
                     </div>
 
                     <div className="shrink-0">
                       {isHere ? (
-                        <span className="text-[11px] font-mono font-semibold text-amber-400">
+                        <span className="px-2 py-1 rounded bg-amber-400/20 border border-amber-400/40 text-[11px] font-mono font-semibold text-amber-300">
                           HERE NOW
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-mono text-slate-300">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-mono text-slate-200">
                           <span>Drive (+1h)</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
+                          <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
                         </span>
                       )}
                     </div>
                   </button>
                 );
               })}
-            </div>
-          </div>
-
-          {/* 2. Stock & Manual Logistics Overview */}
-          <div className="p-4 sm:p-5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                <Package className="w-4 h-4 text-amber-400" />
-                <span>Car Boot & Lock-up</span>
-              </h2>
-              <button
-                onClick={() =>
-                  setActiveWorkspaceView(
-                    activeWorkspaceView === 'logistics' ? 'stage' : 'logistics'
-                  )
-                }
-                className="text-xs font-mono text-amber-400 hover:underline"
-              >
-                {activeWorkspaceView === 'logistics' ? 'Back to Stage' : 'Contracts →'}
-              </button>
-            </div>
-
-            {/* In Car Boot */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>In Car Boot · Leo Smith (You)</span>
-                <span className="font-mono">
-                  {gameState.player.inventory.length}/{gameState.player.maxCarryCapacity}
-                </span>
-              </div>
-              {gameState.player.inventory.length === 0 ? (
-                <div className="p-2.5 rounded bg-slate-950 border border-slate-800/80 text-xs text-slate-500 font-mono">
-                  Car Boot is empty.
-                </div>
-              ) : (
-                gameState.player.inventory.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-950 border border-slate-800"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <ItemColorBlock type={item.type} isIllicit={item.isIllicit} size="sm" />
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-100 break-words leading-snug">
-                          {item.name}
-                        </div>
-                        <div className="text-[11px] font-mono text-slate-400">
-                          Paid: £{item.buyPrice} ·{' '}
-                          <span className={item.isIllicit ? 'text-rose-400' : 'text-emerald-400'}>
-                            {item.isIllicit ? 'CONTRABAND' : 'LEGIT'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    {isAtWarehouse && (
-                      <button
-                        onClick={() => handleTransferToWarehouse(item.id)}
-                        className="min-h-[38px] px-2.5 py-1 text-[11px] font-mono bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold rounded transition-colors whitespace-nowrap shrink-0"
-                      >
-                        Unload
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* In The Lock-up */}
-            <div className="space-y-2 pt-2 border-t border-slate-800">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>In The Lock-up (Warehouse)</span>
-                <span className="font-mono">{gameState.player.warehouseInventory.length} lots</span>
-              </div>
-              {gameState.player.warehouseInventory.length === 0 ? (
-                <div className="p-2.5 rounded bg-slate-950 border border-slate-800/80 text-xs text-slate-500 font-mono">
-                  No parcels in The Lock-up.
-                </div>
-              ) : (
-                gameState.player.warehouseInventory.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-950 border border-slate-800"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <ItemColorBlock type={item.type} isIllicit={item.isIllicit} size="sm" />
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-100 break-words leading-snug">
-                          {item.name}
-                        </div>
-                        <div className="text-[11px] font-mono text-slate-400">
-                          Paid: £{item.buyPrice} · Stored at Lock-up
-                        </div>
-                      </div>
-                    </div>
-                    {isAtWarehouse ? (
-                      <button
-                        onClick={() => handleRetrieveFromWarehouse(item.id)}
-                        className="min-h-[38px] px-2.5 py-1 text-[11px] font-mono bg-amber-400 hover:bg-amber-300 text-slate-950 font-semibold rounded transition-colors whitespace-nowrap shrink-0"
-                      >
-                        Load Car
-                      </button>
-                    ) : (
-                      <span className="text-[11px] font-mono text-slate-500 shrink-0">
-                        At Lock-up
-                      </span>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 3. Mr. Smash Delivery Apartment Info */}
-          <div className="p-4 sm:p-5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-sky-400 flex items-center gap-2">
-                <Shield className="w-4 h-4" />
-                <span>Mr. Smash · Delivery (5% Fee)</span>
-              </h2>
-              <button
-                onClick={() => setRefModal({ open: true, tab: 'dictionary' })}
-                className="text-xs text-amber-400 hover:underline flex items-center gap-1 font-medium"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Dictionary</span>
-              </button>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Mr. Smash lives in his own apartment (<strong>Mr. Smash&apos;s Flat</strong>) and handles your deliveries for a <strong>5% commission</strong> on the negotiated value.
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => handleMoveToLocation('smash_flat')}
-                className="min-h-[44px] p-2.5 text-xs font-medium bg-slate-950 hover:bg-slate-800 text-sky-300 border border-slate-800 rounded-lg transition-colors whitespace-nowrap"
-              >
-                Drive to Smash&apos;s Flat
-              </button>
-              <button
-                onClick={() =>
-                  handleCommandSubmit(
-                    undefined,
-                    gameState.world.terryStatus.isFollowing ? 'stop minder' : 'be my minder'
-                  )
-                }
-                className="min-h-[44px] p-2.5 text-xs font-medium bg-slate-950 hover:bg-slate-800 text-amber-300 border border-slate-800 rounded-lg transition-colors whitespace-nowrap"
-              >
-                {gameState.world.terryStatus.isFollowing
-                  ? 'Dismiss Escort'
-                  : 'Hire Minder Escort'}
-              </button>
             </div>
           </div>
         </aside>
