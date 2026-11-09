@@ -1,0 +1,6 @@
+{
+  "name": "The Trader: Minder 1985 Edition",
+  "description": "Simulador de comércio informal, logística e pechincha em texto livre inspirado no clássico Minder (1985) do ZX Spectrum.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
