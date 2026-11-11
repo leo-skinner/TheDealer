@@ -114,6 +114,7 @@ export interface GameState {
   mode: GameMode;
   themeMode: 'day_night_auto' | 'crt_terminal';
   soundEnabled: boolean;
+  adminMode: boolean;
   player: {
     name: string;
     originalAlias: string;

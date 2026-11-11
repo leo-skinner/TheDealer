@@ -140,6 +140,8 @@ export interface ParsedCommand {
     | 'GO_TO'
     | 'SLEEP'
     | 'HELP'
+    | 'ADMIN_MODE'
+    | 'EXIT_ADMIN_MODE'
     | 'WRITTEN_NUMBER_ERROR'
     | 'UNKNOWN';
   amount?: number;
@@ -262,6 +264,23 @@ export function parseFreeTextCommand(input: string): ParsedCommand {
   const itemMatch = extractItemKeyword(lower);
   const locMatch = extractLocationKeyword(lower);
   const moneyMatch = extractMoneyFromSentence(raw);
+
+  // 0. Check Admin Mode activation / deactivation keywords (Secret keyword: IAMNOTARTHURDALEY)
+  if (/^(iamnotarthurdaley|i am not arthur daley)$/i.test(lower)) {
+    return {
+      intent: 'ADMIN_MODE',
+      extractedKeywords: ['IAMNOTARTHURDALEY → ADMIN MODE'],
+      raw,
+    };
+  }
+
+  if (/^(exit admin|normal mode|modo normal|admin off|debug off)$/i.test(lower)) {
+    return {
+      intent: 'EXIT_ADMIN_MODE',
+      extractedKeywords: ['EXIT ADMIN MODE'],
+      raw,
+    };
+  }
 
   // 1. Check Help / Dictionary keyword anywhere
   if (/\b(help|dictionary|dict|slang|glossary|manual|commands|ajuda)\b/i.test(lower) || lower === '?') {
@@ -789,7 +808,9 @@ const BAR_PATRON_POOL: Array<{
 ];
 
 /**
- * Rotates patrons randomly at The Winchester Club when the player passes 1 hour at the bar.
+ * Rotates patrons randomly at The Winchester Club when 1 hour passes at the bar.
+ * Existing patrons at the bar have a chance (~55%) to remain at their table for another hour,
+ * while some leave and new patrons may walk in. Thomas Beer (the barman/owner) never leaves.
  */
 export function rotateWinchesterClubPatrons(
   day: number,
@@ -801,45 +822,60 @@ export function rotateWinchesterClubPatrons(
   updatedLots: MarketLot[];
   newRumor: string;
   arrivedNames: string[];
+  stayedNames: string[];
 } {
   // Keep non-Winchester Club lots intact
   const nonClubLots = existingLots.filter((lot) => lot.location !== 'winchester_club');
+  const currentClubLots = existingLots.filter((lot) => lot.location === 'winchester_club');
 
-  // Avoid repeating the exact same patron names that were just at the bar if possible
-  const previousNames = new Set(
-    existingLots.filter((lot) => lot.location === 'winchester_club').map((l) => l.npcName)
-  );
-  const candidatePool = BAR_PATRON_POOL.filter((p) => !previousNames.has(p.npcName));
-  const poolToUse = candidatePool.length >= 3 ? candidatePool : BAR_PATRON_POOL;
+  // Each patron currently in the bar has a 55% chance to stay longer at the bar (up to 2 stayers)
+  const stayedLots: MarketLot[] = [];
+  for (const lot of currentClubLots) {
+    if (stayedLots.length < 2 && Math.random() < 0.55) {
+      stayedLots.push(lot);
+    }
+  }
 
-  // Shuffle pool randomly
-  const shuffledPatrons = [...poolToUse].sort(() => Math.random() - 0.5);
-  // Spawn 2 or 3 random patrons at the bar
-  const count = Math.random() < 0.55 ? 2 : 3;
-  const chosenPatrons = shuffledPatrons.slice(0, count);
+  const stayedNames = stayedLots.map((l) => l.npcName);
+  const stayedNameSet = new Set(stayedNames);
 
-  // Shuffle catalog items so different wares are offered/sought
+  // Determine how many total patrons should be in the bar this hour (2 or 3)
+  const desiredTotal = Math.random() < 0.5 ? 2 : 3;
+  const newcomersNeeded = Math.max(0, desiredTotal - stayedLots.length);
+
+  // Pick newcomers from pool who aren't already staying at the bar
+  const candidatePool = BAR_PATRON_POOL.filter((p) => !stayedNameSet.has(p.npcName));
+  const shuffledPatrons = [...candidatePool].sort(() => Math.random() - 0.5);
+  const chosenNewPatrons = shuffledPatrons.slice(0, newcomersNeeded);
+
+  // Shuffle catalog items so different wares are offered/sought by newcomers
   const shuffledItems = [...CATALOG_ITEMS].sort(() => Math.random() - 0.5);
-  const newClubLots: MarketLot[] = [];
+  const arrivedLots: MarketLot[] = [];
 
-  chosenPatrons.forEach((patron, idx) => {
+  chosenNewPatrons.forEach((patron, idx) => {
     const baseItem = shuffledItems[idx % shuffledItems.length];
     const mult = baseItem.type === 'electrical' ? elecMultiplier : miscMultiplier;
-    // Guarantee at least 1 seller and 1 buyer, with optional 3rd random role
-    const role: 'SELLING_TO_PLAYER' | 'BUYING_FROM_PLAYER' =
-      idx === 0
-        ? 'SELLING_TO_PLAYER'
-        : idx === 1
-        ? 'BUYING_FROM_PLAYER'
-        : Math.random() < 0.5
-        ? 'SELLING_TO_PLAYER'
-        : 'BUYING_FROM_PLAYER';
+
+    const hasSellerAlready =
+      stayedLots.some((l) => l.role === 'SELLING_TO_PLAYER') ||
+      arrivedLots.some((l) => l.role === 'SELLING_TO_PLAYER');
+    const hasBuyerAlready =
+      stayedLots.some((l) => l.role === 'BUYING_FROM_PLAYER') ||
+      arrivedLots.some((l) => l.role === 'BUYING_FROM_PLAYER');
+
+    const role: 'SELLING_TO_PLAYER' | 'BUYING_FROM_PLAYER' = !hasSellerAlready
+      ? 'SELLING_TO_PLAYER'
+      : !hasBuyerAlready
+      ? 'BUYING_FROM_PLAYER'
+      : Math.random() < 0.5
+      ? 'SELLING_TO_PLAYER'
+      : 'BUYING_FROM_PLAYER';
 
     if (role === 'SELLING_TO_PLAYER') {
-      const discount = 0.62 + Math.random() * 0.16; // 62% to 78% of market value
+      const discount = 0.62 + Math.random() * 0.16;
       const targetPrice = Math.max(40, Math.round(baseItem.marketValue * discount * mult));
       const initialQuote = Math.round(targetPrice * (1.2 + Math.random() * 0.1));
-      newClubLots.push({
+      arrivedLots.push({
         npcId: patron.npcId,
         npcName: patron.npcName,
         originalName: patron.originalName,
@@ -857,10 +893,10 @@ export function rotateWinchesterClubPatrons(
         availableUntilHour: 27,
       });
     } else {
-      const premium = 1.22 + Math.random() * 0.22; // 122% to 144% of market value
+      const premium = 1.22 + Math.random() * 0.22;
       const targetPrice = Math.max(60, Math.round(baseItem.marketValue * premium * mult));
       const initialQuote = Math.round(targetPrice * (0.78 + Math.random() * 0.06));
-      newClubLots.push({
+      arrivedLots.push({
         npcId: patron.npcId,
         npcName: patron.npcName,
         originalName: patron.originalName,
@@ -880,12 +916,17 @@ export function rotateWinchesterClubPatrons(
     }
   });
 
-  const sellerLot = newClubLots.find((l) => l.role === 'SELLING_TO_PLAYER');
-  const buyerLot = newClubLots.find((l) => l.role === 'BUYING_FROM_PLAYER');
+  const allClubLots = [...stayedLots, ...arrivedLots];
+  const sellerLot = allClubLots.find((l) => l.role === 'SELLING_TO_PLAYER');
+  const buyerLot = allClubLots.find((l) => l.role === 'BUYING_FROM_PLAYER');
 
-  const newRumor = `Thomas Beer wipes down the counter: "New faces just walked into the bar, Leo! ${
+  const newRumor = `Thomas Beer wipes down the counter: "${
+    stayedNames.length > 0
+      ? `${stayedNames.join(' & ')} stayed for another pint. `
+      : ''
+  }${
     sellerLot
-      ? `${sellerLot.npcName} is quietly offering ${sellerLot.item.name} (~£${sellerLot.targetPrice} quid)`
+      ? `${sellerLot.npcName} is offering ${sellerLot.item.name} (~£${sellerLot.targetPrice} quid)`
       : ''
   }${sellerLot && buyerLot ? ', and ' : ''}${
     buyerLot
@@ -894,9 +935,10 @@ export function rotateWinchesterClubPatrons(
   }"`;
 
   return {
-    updatedLots: [...nonClubLots, ...newClubLots],
+    updatedLots: [...nonClubLots, ...allClubLots],
     newRumor,
-    arrivedNames: chosenPatrons.map((p) => p.npcName),
+    arrivedNames: chosenNewPatrons.map((p) => p.npcName),
+    stayedNames,
   };
 }
 

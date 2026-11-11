@@ -145,9 +145,35 @@ export default function App() {
     next.player.hour += hoursToAdvance;
     next.player.currentLocation = targetLocation;
 
+    // Whenever 1+ hour passes while at The Winchester Club, rotate bar patrons with partial retention
+    // (some patrons stay at their table for another hour while new ones walk in; Thomas Beer never leaves)
+    let barRotationNote = '';
+    if (hoursToAdvance > 0 && targetLocation === 'winchester_club') {
+      const { updatedLots, newRumor, arrivedNames, stayedNames } = rotateWinchesterClubPatrons(
+        next.player.day,
+        next.player.hour,
+        next.world.marketPrices.electrical,
+        next.world.marketPrices.miscellaneous,
+        next.world.dailyLots
+      );
+      next.world.dailyLots = updatedLots;
+      next.world.winchesterRumor = newRumor;
+
+      const parts: string[] = [];
+      if (stayedNames.length > 0) {
+        parts.push(`Still at the bar: ${stayedNames.join(', ')}`);
+      }
+      if (arrivedNames.length > 0) {
+        parts.push(`Walked in: ${arrivedNames.join(', ')}`);
+      }
+      if (parts.length > 0) {
+        barRotationNote = ` [${parts.join(' | ')}]`;
+      }
+    }
+
     if (reasonLog) {
       next.logs = [
-        `[${formatGameHour(next.player.hour).formatted}] ${reasonLog}`,
+        `[${formatGameHour(next.player.hour).formatted}] ${reasonLog}${barRotationNote}`,
         ...next.logs.slice(0, 35),
       ];
     }
@@ -316,7 +342,7 @@ export default function App() {
   };
 
   /**
-   * Pass 1 Hour at The Winchester Club (Bar): advances clock +1h and spawns new random patrons at the bar
+   * Pass 1 Hour at The Winchester Club (Bar): advances clock +1h and rotates bar patrons (some stay, new ones arrive)
    */
   const handlePassHourAtBar = () => {
     if (gameState.player.currentLocation !== 'winchester_club') return;
@@ -324,25 +350,11 @@ export default function App() {
 
     setGameState((prev) => {
       const cleaned = { ...prev, activeEncounter: null, mode: 'MAIN_HUB' as const };
-      const nextHour = cleaned.player.hour + 1;
-      const { updatedLots, newRumor, arrivedNames } = rotateWinchesterClubPatrons(
-        cleaned.player.day,
-        nextHour,
-        cleaned.world.marketPrices.electrical,
-        cleaned.world.marketPrices.miscellaneous,
-        cleaned.world.dailyLots
-      );
-
-      cleaned.world.dailyLots = updatedLots;
-      cleaned.world.winchesterRumor = newRumor;
-
       return advanceTimeEngine(
         cleaned,
         1,
         undefined,
-        `Passed 1 hour at The Winchester Club (+1h). New patrons walked into the bar: ${arrivedNames.join(
-          ', '
-        )}!`
+        `Passed 1 hour at The Winchester Club (+1h). Thomas Beer tends the bar while patrons come and go.`
       );
     });
   };
@@ -600,6 +612,31 @@ export default function App() {
 
     const parsed = parseFreeTextCommand(rawText);
 
+    // 0. Administrator Mode activation / deactivation via chat keyword
+    if (parsed.intent === 'ADMIN_MODE') {
+      clearSavedGame();
+      const adminState = createInitialGameState(true);
+      adminState.logs = [
+        `[ADMIN MODE ENABLED] Screen restarted in Administrator Mode! Engine Telemetry, Keyword Scanner, Target Price, and NPC Patience are now visible for evaluation. (Click "New Game" or type "exit admin" to return to normal mode).`,
+        ...adminState.logs,
+      ];
+      setGameState(adminState);
+      setActiveWorkspaceView('stage');
+      soundFX.playDealSuccess(adminState.soundEnabled);
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+      return;
+    }
+
+    if (parsed.intent === 'EXIT_ADMIN_MODE') {
+      clearSavedGame();
+      const normalState = createInitialGameState(false);
+      setGameState(normalState);
+      setActiveWorkspaceView('stage');
+      soundFX.playStep(normalState.soundEnabled);
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+      return;
+    }
+
     // 1. Global Help / Dictionary
     if (parsed.intent === 'HELP') {
       setRefModal({ open: true, tab: 'dictionary' });
@@ -748,9 +785,15 @@ export default function App() {
           return next;
         }
         if (parsed.intent === 'REJECT_BYE') {
+          soundFX.playStep(next.soundEnabled);
           next.activeEncounter = null;
           next.mode = 'MAIN_HUB';
-          return next;
+          return advanceTimeEngine(
+            next,
+            1,
+            undefined,
+            `Stepped away from the bar after chatting with Thomas Beer (+1h elapsed).`
+          );
         }
         enc.transcript.push(
           createDialogue(
@@ -1166,11 +1209,11 @@ export default function App() {
   };
 
   /**
-   * Start New Career
+   * Start New Career (Always resets to clean Normal Mode with adminMode = false)
    */
   const handleStartNewGame = () => {
     clearSavedGame();
-    const fresh = createInitialGameState();
+    const fresh = createInitialGameState(false);
     setGameState(fresh);
     setActiveWorkspaceView('stage');
     soundFX.playDealSuccess(fresh.soundEnabled);
@@ -1185,17 +1228,24 @@ export default function App() {
     <div id="top" className="min-h-screen flex flex-col bg-[#0a0f0d] text-slate-100 crt-scanlines pb-16 md:pb-0">
       {/* Top Header with only the game title and New Game action */}
       <header className="flex items-center justify-between gap-4 px-4 sm:px-6 py-3 border-b border-slate-800/90 bg-slate-950/90">
-        <a
-          href="#top"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveWorkspaceView('stage');
-            window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-          }}
-          className="text-base sm:text-lg font-bold tracking-tight text-amber-400 whitespace-nowrap shrink-0"
-        >
-          The Trader
-        </a>
+        <div className="flex items-center gap-2.5">
+          <a
+            href="#top"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveWorkspaceView('stage');
+              window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+            }}
+            className="text-base sm:text-lg font-bold tracking-tight text-amber-400 whitespace-nowrap shrink-0"
+          >
+            The Trader
+          </a>
+          {gameState.adminMode && (
+            <span className="px-2 py-0.5 rounded bg-sky-500/20 border border-sky-400/50 text-[10px] font-mono font-bold text-sky-300">
+              ADMIN MODE
+            </span>
+          )}
+        </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <button
@@ -1886,12 +1936,16 @@ export default function App() {
                 <span className="text-xs font-mono font-semibold text-slate-200 break-words">
                   {gameState.activeEncounter
                     ? `CONVERSATION WITH: ${gameState.activeEncounter.npcName}`
-                    : '1985 KEYWORD PARSER (APPROACH AN NPC OR TYPE COMMANDS)'}
+                    : 'CONSOLE (APPROACH AN NPC OR TYPE COMMANDS)'}
                 </span>
               </div>
 
-              {gameState.activeEncounter && (
+              {/* NPC Patience & Target Price ONLY visible in Administrator Mode */}
+              {gameState.adminMode && gameState.activeEncounter && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-mono">
+                  <span className="text-sky-400">
+                    [Admin Target: £{gameState.activeEncounter.targetPrice}]
+                  </span>
                   <span
                     className={`${
                       gameState.activeEncounter.patience <= 2
@@ -1922,6 +1976,7 @@ export default function App() {
                       entry={entry}
                       isLatestMessage={isLatestNonPlayer}
                       soundEnabled={gameState.soundEnabled}
+                      showTelemetry={Boolean(gameState.adminMode)}
                       onTypingProgress={scrollTranscriptToBottom}
                     />
                   );
@@ -1957,13 +2012,13 @@ export default function App() {
                           handleCommandSubmit(
                             undefined,
                             `I can offer ${Math.round(
-                              gameState.activeEncounter!.targetPrice * 0.95
+                              gameState.activeEncounter!.currentQuote * 0.82
                             )} quid`
                           )
                         }
                         className="min-h-[36px] px-3 py-1.5 text-xs font-mono bg-slate-900 hover:bg-amber-400 hover:text-slate-950 text-amber-300 border border-slate-700 rounded transition-colors whitespace-nowrap shrink-0"
                       >
-                        offer {Math.round(gameState.activeEncounter.targetPrice * 0.95)} quid
+                        offer {Math.round(gameState.activeEncounter.currentQuote * 0.82)} quid
                       </button>
                       <button
                         type="button"
@@ -1972,13 +2027,17 @@ export default function App() {
                             undefined,
                             `How about ${Math.max(
                               1,
-                              Math.round(gameState.activeEncounter!.targetPrice / 25)
+                              Math.round((gameState.activeEncounter!.currentQuote * 0.85) / 25)
                             )} ponies`
                           )
                         }
                         className="min-h-[36px] px-3 py-1.5 text-xs font-mono bg-slate-900 hover:bg-amber-400 hover:text-slate-950 text-amber-300 border border-slate-700 rounded transition-colors whitespace-nowrap shrink-0"
                       >
-                        offer {Math.max(1, Math.round(gameState.activeEncounter.targetPrice / 25))}{' '}
+                        offer{' '}
+                        {Math.max(
+                          1,
+                          Math.round((gameState.activeEncounter.currentQuote * 0.85) / 25)
+                        )}{' '}
                         ponies
                       </button>
                     </>
@@ -1990,13 +2049,13 @@ export default function App() {
                         handleCommandSubmit(
                           undefined,
                           `I want ${Math.round(
-                            gameState.activeEncounter!.targetPrice * 1.05
+                            gameState.activeEncounter!.currentQuote * 1.18
                           )} quid for the lot`
                         )
                       }
                       className="min-h-[36px] px-3 py-1.5 text-xs font-mono bg-slate-900 hover:bg-amber-400 hover:text-slate-950 text-amber-300 border border-slate-700 rounded transition-colors whitespace-nowrap shrink-0"
                     >
-                      want {Math.round(gameState.activeEncounter.targetPrice * 1.05)} quid
+                      want {Math.round(gameState.activeEncounter.currentQuote * 1.18)} quid
                     </button>
                   )}
                   <button
@@ -2048,8 +2107,9 @@ export default function App() {
               </button>
             </div>
 
-            {/* Live Keyword Scanner Preview when typing */}
-            {commandInput.trim().length > 0 &&
+            {/* Live Keyword Scanner Preview ONLY visible in Administrator Mode */}
+            {gameState.adminMode &&
+              commandInput.trim().length > 0 &&
               (() => {
                 const liveParsed = parseFreeTextCommand(commandInput);
                 return (

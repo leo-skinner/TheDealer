@@ -3,13 +3,14 @@ import { CATALOG_ITEMS, generateDailyMarket } from './bargainEngine';
 
 export const SAVE_STORAGE_KEY = 'the_trader_save_state';
 
-export function createInitialGameState(): GameState {
+export function createInitialGameState(adminMode = false): GameState {
   const { lots, rumor } = generateDailyMarket(1, 1.2, 0.9);
 
   return {
     mode: 'MAIN_HUB',
     themeMode: 'day_night_auto',
     soundEnabled: true,
+    adminMode,
     player: {
       name: 'Leo Smith',
       originalAlias: 'You',
@@ -80,6 +81,7 @@ function normalizeStateToEnglish(state: GameState): GameState {
     return match ? match.name : fallback;
   };
 
+  state.adminMode = Boolean(state.adminMode);
   state.player.originalAlias = 'You';
   state.player.inventory = (state.player.inventory || []).map((item) => ({
     ...item,

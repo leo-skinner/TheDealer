@@ -6,6 +6,7 @@ interface TypewriterMessageProps {
   entry: DialogueEntry;
   isLatestMessage: boolean;
   soundEnabled: boolean;
+  showTelemetry?: boolean;
   onTypingProgress?: () => void;
 }
 
@@ -13,6 +14,7 @@ export const TypewriterMessage: React.FC<TypewriterMessageProps> = ({
   entry,
   isLatestMessage,
   soundEnabled,
+  showTelemetry = false,
   onTypingProgress,
 }) => {
   const shouldAnimate = (entry.speaker === 'NPC' || entry.speaker === 'SYSTEM') && isLatestMessage;
@@ -104,7 +106,7 @@ export const TypewriterMessage: React.FC<TypewriterMessageProps> = ({
         </p>
       )}
 
-      {!isStillTyping && entry.mathDebug && (
+      {showTelemetry && !isStillTyping && entry.mathDebug && (
         <div className="mt-2 pt-1.5 border-t border-slate-800 text-[11px] text-sky-400 break-words">
           [Engine Telemetry] {entry.mathDebug}
         </div>
